@@ -1,65 +1,76 @@
-import { NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { getTipoDocumento } from "@/lib/documentos";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const SYSTEM = `Eres un abogado litigante mexicano con amplia experiencia en redacción jurídica. Redactas con técnica impecable: lenguaje formal y preciso, fundamentos de derecho correctos (citas de artículos aplicables de la legislación mexicana y, cuando proceda, criterios y jurisprudencia de la SCJN), estructura ordenada y congruente.
+
+Reglas estrictas:
+- Conserva fielmente los datos proporcionados por el usuario.
+- NO inventes datos personales, fechas, montos ni domicilios que falten: déjalos como marcadores entre corchetes, por ejemplo [domicilio del demandado].
+- Completa y mejora el documento aplicando buena técnica jurídica (proemio, prestaciones, hechos, derecho, pruebas, puntos petitorios o cláusulas según corresponda).
+- Devuelve ÚNICAMENTE el documento final, sin comentarios, explicaciones, ni notas al margen.`;
 
 /**
- * Genera un documento legal.
- * - Sin ANTHROPIC_API_KEY: usa la plantilla local (instantáneo, sin costo).
- * - Con ANTHROPIC_API_KEY: usa Claude para redactar un documento pulido y completo.
+ * Genera un documento legal en streaming.
+ * - Sin ANTHROPIC_API_KEY: transmite la plantilla local (instantáneo, sin costo).
+ * - Con ANTHROPIC_API_KEY: Claude (Opus 4.8) redacta el documento en tiempo real.
  */
 export async function POST(req: Request) {
   const { tipo, campos } = (await req.json()) as { tipo: string; campos: Record<string, string> };
 
   const doc = getTipoDocumento(tipo);
   if (!doc) {
-    return NextResponse.json({ error: "Tipo de documento no encontrado" }, { status: 400 });
+    return new Response("Tipo de documento no encontrado", { status: 400 });
   }
 
   const base = doc.plantilla(campos || {});
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  const encoder = new TextEncoder();
 
-  // Modo plantilla (sin IA)
+  // ---- Modo plantilla (sin IA) ----
   if (!apiKey) {
-    return NextResponse.json({ documento: base, modo: "plantilla" });
-  }
-
-  // Modo IA con Claude
-  try {
-    const prompt = `Eres un abogado litigante mexicano experto en redacción jurídica. Tu tarea es perfeccionar y completar el siguiente borrador de "${doc.nombre}" generado a partir de una plantilla.
-
-Mejóralo aplicando técnica jurídica mexicana: redacción formal, fundamentos legales correctos (cita artículos aplicables y, cuando proceda, criterios), estructura impecable y lenguaje profesional. Conserva los datos proporcionados por el usuario. No inventes datos personales que falten: deja marcadores entre corchetes [así].
-
-Borrador base:
----
-${base}
----
-
-Devuelve ÚNICAMENTE el documento final, sin comentarios ni explicaciones.`;
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(base));
+        controller.close();
       },
-      body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
-        max_tokens: 4096,
-        messages: [{ role: "user", content: prompt }],
-      }),
     });
-
-    if (!res.ok) {
-      // Falla la IA → devolvemos la plantilla para no bloquear al usuario
-      return NextResponse.json({ documento: base, modo: "plantilla", aviso: "IA no disponible, se usó plantilla" });
-    }
-
-    const data = await res.json();
-    const texto = data?.content?.[0]?.text || base;
-    return NextResponse.json({ documento: texto, modo: "ia" });
-  } catch {
-    return NextResponse.json({ documento: base, modo: "plantilla", aviso: "IA no disponible, se usó plantilla" });
+    return new Response(stream, {
+      headers: { "Content-Type": "text/plain; charset=utf-8", "X-Modo": "plantilla" },
+    });
   }
+
+  // ---- Modo IA (Claude Opus 4.8, streaming) ----
+  const client = new Anthropic({ apiKey });
+  const userPrompt = `Redacta y perfecciona el siguiente documento de tipo "${doc.nombre}", a partir de este borrador generado por plantilla. Mejóralo con técnica jurídica mexicana y complétalo de forma profesional:\n\n---\n${base}\n---`;
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      let escribio = false;
+      try {
+        const ai = client.messages.stream({
+          model: process.env.ANTHROPIC_MODEL || "claude-opus-4-8",
+          max_tokens: 16000,
+          system: SYSTEM,
+          messages: [{ role: "user", content: userPrompt }],
+        });
+        for await (const event of ai) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            escribio = true;
+            controller.enqueue(encoder.encode(event.delta.text));
+          }
+        }
+      } catch {
+        // Si la IA falla antes de escribir nada, devolvemos la plantilla.
+        if (!escribio) controller.enqueue(encoder.encode(base));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "text/plain; charset=utf-8", "X-Modo": "ia" },
+  });
 }

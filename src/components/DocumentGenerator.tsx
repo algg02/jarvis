@@ -55,15 +55,27 @@ export default function DocumentGenerator() {
 
   const generar = async () => {
     setCargando(true);
+    setResultado("");
+    setModo("");
     try {
       const res = await fetch("/api/generar", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ tipo: tipoId, campos: valores }),
       });
-      const data = await res.json();
-      setResultado(data.documento || "");
-      setModo(data.modo || "");
+      setModo(res.headers.get("X-Modo") || "");
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (reader) {
+        // Lee el documento en streaming y lo va mostrando en tiempo real.
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          setResultado((prev) => prev + chunk);
+        }
+      }
     } catch {
       setResultado("Error al generar el documento. Intenta de nuevo.");
     }
@@ -142,7 +154,9 @@ export default function DocumentGenerator() {
             {cargando ? "Generando…" : "✦ Generar documento"}
           </button>
           <p style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 10, marginBottom: 0 }}>
-            Modo plantilla activo. Agrega <span className="kbd">ANTHROPIC_API_KEY</span> para redacción con IA.
+            {modo === "ia"
+              ? "✦ Redactado con Claude Opus 4.8"
+              : <>Modo plantilla. Agrega <span className="kbd">ANTHROPIC_API_KEY</span> en <span className="kbd">.env.local</span> para activar la IA.</>}
           </p>
         </div>
 
@@ -169,8 +183,8 @@ export default function DocumentGenerator() {
             </div>
           </div>
 
-          <div style={{ padding: resultado ? "22px 26px" : 0, minHeight: 420, maxHeight: 620, overflowY: "auto" }}>
-            {resultado ? (
+          <div style={{ padding: resultado || cargando ? "22px 26px" : 0, minHeight: 420, maxHeight: 620, overflowY: "auto" }}>
+            {resultado || cargando ? (
               <pre
                 className="serif"
                 style={{
@@ -179,6 +193,7 @@ export default function DocumentGenerator() {
                 }}
               >
                 {resultado}
+                {cargando && <span className="blink" style={{ color: "var(--gold)" }}>▍</span>}
               </pre>
             ) : (
               <div style={{ padding: 40, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 420, gap: 14, textAlign: "center" }}>
