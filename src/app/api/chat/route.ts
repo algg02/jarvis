@@ -79,10 +79,25 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
+      let escribio = false;
       try {
-        for await (const chunk of gen) controller.enqueue(enc.encode(chunk));
-      } catch {
-        controller.enqueue(enc.encode("\n\n[Error de conexión con la IA. Intenta de nuevo.]"));
+        for await (const chunk of gen) {
+          escribio = true;
+          controller.enqueue(enc.encode(chunk));
+        }
+      } catch (e) {
+        const detalle = e instanceof Error ? e.message : String(e);
+        console.error(`[chat] Falló ${proveedor}:`, detalle);
+        if (!escribio) {
+          controller.enqueue(
+            enc.encode(
+              `⚠️ No pude conectar con la IA (${proveedor}).\n\nDetalle: ${detalle}\n\n` +
+                `Revisa que tu API key sea válida y que el modelo exista. ` +
+                `Si el detalle dice 404/modelo, prueba otro modelo en .env.local ` +
+                `(p. ej. GEMINI_MODEL=gemini-1.5-flash).`
+            )
+          );
+        }
       }
       controller.close();
     },

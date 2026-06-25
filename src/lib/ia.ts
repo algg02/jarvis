@@ -37,7 +37,7 @@ async function* streamGemini(key: string, system: string, mensajes: Mensaje[]): 
       })),
     }),
   });
-  if (!res.ok || !res.body) throw new Error("gemini");
+  if (!res.ok || !res.body) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
   for await (const data of sseLines(res)) {
     try {
       const j = JSON.parse(data);
@@ -59,7 +59,7 @@ async function* streamGroq(key: string, system: string, mensajes: Mensaje[]): As
       messages: [{ role: "system", content: system }, ...mensajes],
     }),
   });
-  if (!res.ok || !res.body) throw new Error("groq");
+  if (!res.ok || !res.body) throw new Error(`Groq ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
   for await (const data of sseLines(res)) {
     if (data === "[DONE]") break;
     try {
