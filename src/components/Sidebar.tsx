@@ -4,9 +4,10 @@ import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/", label: "Inicio", icon: "◈", desc: "Panel general" },
+  { href: "/asistente", label: "Asistente", icon: "✦", desc: "Consultas con IA" },
   { href: "/documentos", label: "Documentos", icon: "✎", desc: "Generar escritos" },
   { href: "/criterios", label: "Criterios", icon: "§", desc: "Tesis y jurisprudencia" },
-  { href: "/noticias", label: "Noticias", icon: "✦", desc: "Actualidad jurídica" },
+  { href: "/noticias", label: "Noticias", icon: "❖", desc: "Actualidad jurídica" },
 ];
 
 const NAV_SOON = [

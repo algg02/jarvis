@@ -46,6 +46,9 @@ export default function Home() {
           <Link href="/documentos" className="btn btn-gold">
             ✎ Generar documento
           </Link>
+          <Link href="/asistente" className="btn btn-outline">
+            ✦ Consultar al asistente
+          </Link>
           <Link href="/criterios" className="btn btn-outline">
             § Buscar criterios
           </Link>
