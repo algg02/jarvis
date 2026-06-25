@@ -1,4 +1,4 @@
-import { streamIA, type Mensaje } from "@/lib/ia";
+import { arrancarIA, proveedoresIA, type Mensaje } from "@/lib/ia";
 import { buscarCriterios, criteriosComoContexto } from "@/lib/buscar";
 import { buscarSCJN, scjnComoContexto } from "@/lib/scjn";
 
@@ -62,11 +62,10 @@ export async function POST(req: Request) {
   }
 
   const system = fuentes.length ? `${SYSTEM}\n\n---\n${fuentes.join("\n\n---\n")}` : SYSTEM;
-
-  const { proveedor, gen } = streamIA(system, historial);
   const enc = new TextEncoder();
 
-  if (!gen) {
+  // Sin ninguna key configurada → aviso para activar la IA.
+  if (proveedoresIA(system, historial).length === 0) {
     const aviso =
       "⚠️ El asistente de IA no está configurado todavía.\n\n" +
       "Agrega una API key gratuita de Gemini en el archivo `.env.local` " +
@@ -77,27 +76,36 @@ export async function POST(req: Request) {
     });
   }
 
+  // Arranca la IA con fallback: si un proveedor falla (p. ej. 429), pasa al siguiente.
+  let inicio: Awaited<ReturnType<typeof arrancarIA>>;
+  try {
+    inicio = await arrancarIA(system, historial);
+  } catch (e) {
+    const detalle = e instanceof Error ? e.message : String(e);
+    console.error("[chat] Todos los proveedores fallaron:", detalle);
+    const esCuota = /429|quota|rate/i.test(detalle);
+    const msg = esCuota
+      ? `⚠️ La IA gratuita alcanzó su límite de uso por ahora (error 429).\n\n` +
+        `Espera ~1 minuto y reintenta, o agrega una segunda key gratuita de Groq en .env.local ` +
+        `(GROQ_API_KEY=...) — el sistema cambiará a ella automáticamente.\n\nDetalle: ${detalle}`
+      : `⚠️ No pude conectar con la IA.\n\nDetalle: ${detalle}\n\n` +
+        `Revisa que tu API key sea válida y que el modelo exista ` +
+        `(si dice 404, prueba GEMINI_MODEL=gemini-1.5-flash en .env.local).`;
+    return new Response(msg, {
+      headers: { "Content-Type": "text/plain; charset=utf-8", "X-Modo": "plantilla", "X-Proveedor": "Plantilla" },
+    });
+  }
+
+  const { proveedor, primero, gen } = inicio!;
+
   const stream = new ReadableStream({
     async start(controller) {
-      let escribio = false;
       try {
-        for await (const chunk of gen) {
-          escribio = true;
-          controller.enqueue(enc.encode(chunk));
-        }
+        controller.enqueue(enc.encode(primero));
+        for await (const chunk of gen) controller.enqueue(enc.encode(chunk));
       } catch (e) {
-        const detalle = e instanceof Error ? e.message : String(e);
-        console.error(`[chat] Falló ${proveedor}:`, detalle);
-        if (!escribio) {
-          controller.enqueue(
-            enc.encode(
-              `⚠️ No pude conectar con la IA (${proveedor}).\n\nDetalle: ${detalle}\n\n` +
-                `Revisa que tu API key sea válida y que el modelo exista. ` +
-                `Si el detalle dice 404/modelo, prueba otro modelo en .env.local ` +
-                `(p. ej. GEMINI_MODEL=gemini-1.5-flash).`
-            )
-          );
-        }
+        console.error(`[chat] ${proveedor} se cortó a media respuesta:`, e instanceof Error ? e.message : e);
+        controller.enqueue(enc.encode("\n\n[La conexión con la IA se interrumpió. Intenta de nuevo.]"));
       }
       controller.close();
     },

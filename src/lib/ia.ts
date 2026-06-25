@@ -88,24 +88,50 @@ async function* streamClaude(key: string, system: string, mensajes: Mensaje[]): 
 
 export type Proveedor = "Gemini" | "Groq" | "Claude" | "Plantilla";
 
-/** Elige el proveedor según la key disponible (gratis primero). */
-export function elegirProveedor(): { proveedor: Proveedor; key: string | null } {
-  if (process.env.GEMINI_API_KEY) return { proveedor: "Gemini", key: process.env.GEMINI_API_KEY };
-  if (process.env.GROQ_API_KEY) return { proveedor: "Groq", key: process.env.GROQ_API_KEY };
-  if (process.env.ANTHROPIC_API_KEY) return { proveedor: "Claude", key: process.env.ANTHROPIC_API_KEY };
-  return { proveedor: "Plantilla", key: null };
+export interface ProveedorIA {
+  proveedor: Proveedor;
+  /** Crea el generador de tokens (se invoca al intentar este proveedor). */
+  crear: () => AsyncGenerator<string>;
 }
 
-/** Devuelve el generador de tokens del proveedor activo, o null si no hay key. */
-export function streamIA(system: string, mensajes: Mensaje[]): {
-  proveedor: Proveedor;
-  gen: AsyncGenerator<string> | null;
-} {
-  const { proveedor, key } = elegirProveedor();
-  if (!key) return { proveedor, gen: null };
-  const gen =
-    proveedor === "Gemini" ? streamGemini(key, system, mensajes)
-    : proveedor === "Groq" ? streamGroq(key, system, mensajes)
-    : streamClaude(key, system, mensajes);
-  return { proveedor, gen };
+/** Lista TODOS los proveedores con key, en orden de prioridad (gratis primero).
+ *  Sirve para hacer fallback: si uno falla (p. ej. 429), se intenta el siguiente. */
+export function proveedoresIA(system: string, mensajes: Mensaje[]): ProveedorIA[] {
+  const lista: ProveedorIA[] = [];
+  if (process.env.GEMINI_API_KEY)
+    lista.push({ proveedor: "Gemini", crear: () => streamGemini(process.env.GEMINI_API_KEY!, system, mensajes) });
+  if (process.env.GROQ_API_KEY)
+    lista.push({ proveedor: "Groq", crear: () => streamGroq(process.env.GROQ_API_KEY!, system, mensajes) });
+  if (process.env.ANTHROPIC_API_KEY)
+    lista.push({ proveedor: "Claude", crear: () => streamClaude(process.env.ANTHROPIC_API_KEY!, system, mensajes) });
+  return lista;
+}
+
+/** Intenta cada proveedor en orden hasta que uno entregue su primer token.
+ *  Devuelve el proveedor que respondió, su primer chunk y el generador para
+ *  seguir leyendo. Si todos fallan, lanza el último error. Si no hay keys, null. */
+export async function arrancarIA(
+  system: string,
+  mensajes: Mensaje[]
+): Promise<{ proveedor: Proveedor; primero: string; gen: AsyncGenerator<string> } | null> {
+  const provs = proveedoresIA(system, mensajes);
+  if (provs.length === 0) return null;
+
+  let ultimoError: unknown = null;
+  for (const p of provs) {
+    try {
+      const gen = p.crear();
+      const first = await gen.next();
+      if (first.done) {
+        // Stream vacío: intenta el siguiente proveedor.
+        ultimoError = new Error(`${p.proveedor}: respuesta vacía`);
+        continue;
+      }
+      return { proveedor: p.proveedor, primero: first.value, gen };
+    } catch (e) {
+      ultimoError = e;
+      // 429/agotado u otro error → probamos el siguiente proveedor.
+    }
+  }
+  throw ultimoError instanceof Error ? ultimoError : new Error(String(ultimoError));
 }

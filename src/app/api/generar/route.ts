@@ -1,5 +1,5 @@
 import { getTipoDocumento } from "@/lib/documentos";
-import { streamIA } from "@/lib/ia";
+import { arrancarIA } from "@/lib/ia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,25 +23,30 @@ export async function POST(req: Request) {
   const base = doc.plantilla(campos || {});
   const prompt = `Redacta y perfecciona el siguiente documento de tipo "${doc.nombre}", a partir de este borrador generado por plantilla. Mejóralo con técnica jurídica mexicana y complétalo de forma profesional:\n\n---\n${base}\n---`;
 
-  const { proveedor, gen } = streamIA(SYSTEM, [{ role: "user", content: prompt }]);
-  const modo = gen ? "ia" : "plantilla";
+  // Arranca la IA con fallback entre proveedores. Si todos fallan (o no hay
+  // key), devolvemos la plantilla como respaldo: el generador nunca queda vacío.
+  let inicio: Awaited<ReturnType<typeof arrancarIA>> = null;
+  try {
+    inicio = await arrancarIA(SYSTEM, [{ role: "user", content: prompt }]);
+  } catch (e) {
+    console.error("[generar] Todos los proveedores fallaron:", e instanceof Error ? e.message : e);
+  }
+
+  const proveedor = inicio?.proveedor ?? "Plantilla";
+  const modo = inicio ? "ia" : "plantilla";
 
   const stream = new ReadableStream({
     async start(controller) {
-      if (!gen) {
+      if (!inicio) {
         controller.enqueue(enc.encode(base));
         controller.close();
         return;
       }
-      let escribio = false;
       try {
-        for await (const chunk of gen) {
-          escribio = true;
-          controller.enqueue(enc.encode(chunk));
-        }
+        controller.enqueue(enc.encode(inicio.primero));
+        for await (const chunk of inicio.gen) controller.enqueue(enc.encode(chunk));
       } catch {
-        // Si la IA falla antes de escribir, devolvemos la plantilla como respaldo.
-        if (!escribio) controller.enqueue(enc.encode(base));
+        // Si se corta a media redacción, cerramos con lo que se haya escrito.
       }
       controller.close();
     },
