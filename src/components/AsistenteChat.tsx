@@ -1,7 +1,22 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { leerDocumentos } from "@/lib/historial";
 
 type Mensaje = { role: "user" | "assistant"; content: string };
+
+const ETIQUETA_FUENTE: Record<string, (n: string) => string> = {
+  criterios: (n) => `${n} criterio${n === "1" ? "" : "s"} de LEXIA`,
+  scjn: (n) => `${n} tesis de la SCJN (en vivo)`,
+  documentos: (n) => `${n} documento${n === "1" ? "" : "s"} tuyo${n === "1" ? "" : "s"}`,
+};
+
+function describirFuentes(raw: string): string[] {
+  if (!raw || raw === "ninguna") return [];
+  return raw.split(",").map((par) => {
+    const [k, n] = par.split(":");
+    return ETIQUETA_FUENTE[k] ? ETIQUETA_FUENTE[k](n) : par;
+  });
+}
 
 const SUGERENCIAS = [
   { t: "¿Qué requisitos exige el art. 1916 del CCF para el daño moral?", icon: "⚖" },
@@ -48,11 +63,22 @@ export default function AsistenteChat() {
   const [input, setInput] = useState("");
   const [cargando, setCargando] = useState(false);
   const [proveedor, setProveedor] = useState("");
+  const [fuentes, setFuentes] = useState<string[]>([]);
+  const [usarDocs, setUsarDocs] = useState(true);
+  const [numDocs, setNumDocs] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [mensajes]);
+
+  // Cuenta los documentos guardados (y se actualiza si se generan más).
+  useEffect(() => {
+    const actualizar = () => setNumDocs(leerDocumentos().length);
+    actualizar();
+    window.addEventListener("lexia:docs", actualizar);
+    return () => window.removeEventListener("lexia:docs", actualizar);
+  }, []);
 
   const enviar = async (texto: string) => {
     const t = texto.trim();
@@ -61,14 +87,20 @@ export default function AsistenteChat() {
     const nuevos: Mensaje[] = [...mensajes, { role: "user", content: t }, { role: "assistant", content: "" }];
     setMensajes(nuevos);
     setCargando(true);
+    setFuentes([]);
+
+    const docs = usarDocs
+      ? leerDocumentos().slice(0, 3).map((d) => ({ nombre: d.nombre, contenido: d.contenido }))
+      : [];
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mensajes: nuevos.slice(0, -1) }),
+        body: JSON.stringify({ mensajes: nuevos.slice(0, -1), documentos: docs }),
       });
       setProveedor(res.headers.get("X-Proveedor") || "");
+      setFuentes(describirFuentes(res.headers.get("X-Fuentes") || ""));
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       if (reader) {
@@ -144,12 +176,37 @@ export default function AsistenteChat() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             {mensajes.map((m, i) => <Burbuja key={i} m={m} />)}
+            {fuentes.length > 0 && !cargando && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginLeft: 44 }}>
+                <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Fuentes consultadas:</span>
+                {fuentes.map((f) => (
+                  <span key={f} className="badge" style={{ color: "var(--gold)", borderColor: "var(--gold-dim)", background: "rgba(201,168,74,0.1)" }}>
+                    {f}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Input */}
       <div style={{ padding: "14px 18px", borderTop: "1px solid var(--border)", background: "var(--bg-elevated)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: numDocs ? "pointer" : "not-allowed", fontSize: 12, color: numDocs ? "var(--text-dim)" : "var(--text-faint)" }}>
+            <input
+              type="checkbox"
+              checked={usarDocs && numDocs > 0}
+              disabled={numDocs === 0}
+              onChange={(e) => setUsarDocs(e.target.checked)}
+              style={{ accentColor: "var(--gold)", cursor: numDocs ? "pointer" : "not-allowed" }}
+            />
+            Usar mis documentos como contexto
+            <span className="badge" style={{ color: "var(--text-dim)", borderColor: "var(--border)", background: "var(--surface)" }}>
+              {numDocs} guardado{numDocs === 1 ? "" : "s"}
+            </span>
+          </label>
+        </div>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <textarea
             value={input}

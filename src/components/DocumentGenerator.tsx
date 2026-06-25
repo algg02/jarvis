@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { TIPOS_DOCUMENTO, getTipoDocumento, type CampoFormulario } from "@/lib/documentos";
 import MateriaBadge from "@/components/MateriaBadge";
+import { guardarDocumento } from "@/lib/historial";
 
 function Field({ campo, value, onChange }: { campo: CampoFormulario; value: string; onChange: (v: string) => void }) {
   const common = { value: value || "", onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value) };
@@ -69,14 +70,21 @@ export default function DocumentGenerator() {
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
+      let texto = "";
       if (reader) {
         // Lee el documento en streaming y lo va mostrando en tiempo real.
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
+          texto += chunk;
           setResultado((prev) => prev + chunk);
         }
+      }
+      // Al terminar, guarda el documento en el historial local (para reabrirlo
+      // y para que el asistente pueda consultarlo).
+      if (texto.trim()) {
+        guardarDocumento({ tipo: tipoId, nombre: tipo.nombre, contenido: texto });
       }
     } catch {
       setResultado("Error al generar el documento. Intenta de nuevo.");
