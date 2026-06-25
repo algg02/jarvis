@@ -35,6 +35,7 @@ export default function DocumentGenerator() {
   const [valores, setValores] = useState<Record<string, string>>({});
   const [resultado, setResultado] = useState<string>("");
   const [modo, setModo] = useState<string>("");
+  const [proveedor, setProveedor] = useState<string>("");
   const [cargando, setCargando] = useState(false);
   const [copiado, setCopiado] = useState(false);
 
@@ -64,6 +65,7 @@ export default function DocumentGenerator() {
         body: JSON.stringify({ tipo: tipoId, campos: valores }),
       });
       setModo(res.headers.get("X-Modo") || "");
+      setProveedor(res.headers.get("X-Proveedor") || "");
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -155,8 +157,8 @@ export default function DocumentGenerator() {
           </button>
           <p style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 10, marginBottom: 0 }}>
             {modo === "ia"
-              ? "✦ Redactado con Claude Opus 4.8"
-              : <>Modo plantilla. Agrega <span className="kbd">ANTHROPIC_API_KEY</span> en <span className="kbd">.env.local</span> para activar la IA.</>}
+              ? `✦ Redactado con IA (${proveedor})`
+              : <>Modo plantilla. Agrega una key (Gemini gratis) en <span className="kbd">.env.local</span> para activar la IA.</>}
           </p>
         </div>
 

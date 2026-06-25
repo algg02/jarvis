@@ -20,27 +20,28 @@ Abre [http://localhost:3000](http://localhost:3000)
 - **Noticias** — actualidad jurídica filtrable por materia.
 - **10 materias** del derecho mexicano.
 
-## 🤖 Activar la IA de Claude (opcional pero recomendado)
+## 🤖 Activar la IA (opcional)
 
 Sin configurar nada, el generador funciona en **modo plantilla** (gratis e instantáneo).
-Para que **Claude redacte los documentos completos con IA** (modelo Opus 4.8, en tiempo real):
+Para que la IA **redacte los documentos completos en tiempo real**, elige UNA opción:
 
-1. Consigue una API key en **[console.anthropic.com](https://console.anthropic.com)** → *Settings → API Keys*.
-2. En la carpeta del proyecto, copia el archivo de ejemplo:
+| Opción | Costo | Dónde sacar la key |
+|---|---|---|
+| **Gemini** (Google) ⭐ | **Gratis** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — un clic, sin tarjeta |
+| **Groq** (Llama) | **Gratis**, muy rápido | [console.groq.com/keys](https://console.groq.com/keys) |
+| **Claude** (Anthropic) | De pago, máxima calidad | [console.anthropic.com](https://console.anthropic.com) |
+
+Pasos:
+
+1. Copia el archivo de ejemplo:
    ```bash
    cp .env.local.example .env.local
    ```
-3. Abre `.env.local` y pega tu key:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-tu-key-aqui
-   ```
-4. Reinicia el servidor (`Ctrl+C`, luego `npm run dev`).
+2. Abre `.env.local`, descomenta **una** opción y pega tu key (p. ej. `GEMINI_API_KEY=...`).
+3. Reinicia el servidor (`Ctrl+C`, luego `npm run dev`).
 
-Listo: al generar un documento verás que se **escribe solo en tiempo real**, redactado por Claude.
-
-> El modelo se puede cambiar con `ANTHROPIC_MODEL` en `.env.local`
-> (`claude-opus-4-8` = mejor calidad, `claude-sonnet-4-6` = más económico).
+Listo: al generar verás el documento **escribiéndose solo**, y un badge indica qué IA lo redactó.
 
 ## Stack
 
-Next.js 16 (App Router) · TypeScript · Anthropic SDK (streaming) · diseño legal-tech propio.
+Next.js 16 (App Router) · TypeScript · streaming multi-proveedor (Gemini / Groq / Claude) · diseño legal-tech propio.
