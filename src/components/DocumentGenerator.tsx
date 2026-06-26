@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { TIPOS_DOCUMENTO, getTipoDocumento, type CampoFormulario } from "@/lib/documentos";
 import MateriaBadge from "@/components/MateriaBadge";
 import { guardarDocumento } from "@/lib/historial";
+import { exportarWord, exportarPDF } from "@/lib/exportar";
 
 function Field({ campo, value, onChange }: { campo: CampoFormulario; value: string; onChange: (v: string) => void }) {
   const common = { value: value || "", onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value) };
@@ -98,14 +99,24 @@ export default function DocumentGenerator() {
     setTimeout(() => setCopiado(false), 1600);
   };
 
-  const descargar = () => {
-    const blob = new Blob([resultado], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${tipo.nombre.toLowerCase().replace(/\s+/g, "-")}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [exportando, setExportando] = useState<"" | "word" | "pdf">("");
+
+  const descargarWord = async () => {
+    setExportando("word");
+    try {
+      await exportarWord(tipo.nombre, resultado);
+    } finally {
+      setExportando("");
+    }
+  };
+
+  const descargarPDF = () => {
+    setExportando("pdf");
+    try {
+      exportarPDF(tipo.nombre, resultado);
+    } finally {
+      setExportando("");
+    }
   };
 
   return (
@@ -187,8 +198,11 @@ export default function DocumentGenerator() {
               <button className="btn btn-ghost" style={{ padding: "5px 11px", fontSize: 12 }} onClick={copiar} disabled={!resultado}>
                 {copiado ? "✓ Copiado" : "Copiar"}
               </button>
-              <button className="btn btn-ghost" style={{ padding: "5px 11px", fontSize: 12 }} onClick={descargar} disabled={!resultado}>
-                Descargar
+              <button className="btn btn-ghost" style={{ padding: "5px 11px", fontSize: 12 }} onClick={descargarWord} disabled={!resultado || !!exportando}>
+                {exportando === "word" ? "…" : "⬇ Word"}
+              </button>
+              <button className="btn btn-ghost" style={{ padding: "5px 11px", fontSize: 12 }} onClick={descargarPDF} disabled={!resultado || !!exportando}>
+                {exportando === "pdf" ? "…" : "⬇ PDF"}
               </button>
             </div>
           </div>
